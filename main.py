@@ -5,11 +5,12 @@ from models.signLanguage import signLangs
 from config.db import conn
 from schemas.signLang import signLang
 from sqlalchemy import text
-from config.configkey import API_KEY_OPENAI## 주호꺼
-from config.configkey import API_KEY_OPENAI_JAC ## 내꺼
+from config.configkey import API_KEY_OPENAI  ## 주호꺼
+from config.configkey import API_KEY_OPENAI_JAC  ## 내꺼
 import openai
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -23,20 +24,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+class KSL_translater_to_req(BaseModel):
+    sentence: str
+
+class KSL_translater_from_req(BaseModel):
+    word_arr: list
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
 
 
-@app.get("/hello/{name}")
-async def say_hello(name: str):
-    return {"message": f"Hello {name}"}
-
-
 @app.get("/find/{word}")
 def fetch_all(word):
-    # data = conn.execute(signLangs.select().where(signLangs.c.word.like('%' + word + '%'))).fetchall()
-    print("단어" + word)
+    print("단어:" + word)
     query = text("SELECT aniadress FROM sign_lang WHERE word LIKE :pattern")
     query = query.bindparams(pattern='%' + word + '%')
     data2 = conn.execute(query)
@@ -58,7 +59,7 @@ def fetch_all(word):
 
 @app.get("/wFind/{word}")
 def find_same(word):
-    openai.api_key = API_KEY_OPENAI
+    openai.api_key = API_KEY_OPENAI_JAC
     ans = ""
     ans = fetch_all(word)
     if ans == "nodata":
@@ -68,13 +69,19 @@ def find_same(word):
             messages=[
                 {'role': 'user', 'content': prompt}
             ],
-            temperature=0.5
+            temperature=0
         )
-        gpt = completion['choices'][0]['message']['content']
-        print(gpt)
-        print(type(gpt))
 
-        result = gpt.split('/')
+        # 응답 필터링
+        response_messages = completion['choices'][0]['message']['content'].split('/')
+        filtered_messages = filter_responses(response_messages)
+
+        # 결과 출력
+        output = '/'.join(filtered_messages)
+        print(output)
+        print(type(output))
+
+        result = output.split('/')
 
         for row in result:
             ans = fetch_all(row)
@@ -131,31 +138,43 @@ def delete_room(room_id: str):
                 }
 
 
-@app.get("/combineWord/{words}")
-def combine_word(words: str):
+@app.post("/combineWord")
+def combine_word(req: KSL_translater_from_req):
     openai.api_key = API_KEY_OPENAI
-    prompt = words+"위 단어들만 가지고 문법에 맞게 조사를 넣어서 자연스럽게 문장을 끝내줘"
+    a=req.word_arr
+    result = ', '.join(a)
+    print(result)
+    prompt = "단어가 담긴 배열을 너한태 넘겨 줄건데 그 단어들만 사용해서 최대한 문맥에 맞게 한문장만 만들어줘" + result
     completion = openai.ChatCompletion.create(
         model='gpt-3.5-turbo',
         messages=[
             {'role': 'user', 'content': prompt}
         ],
-        temperature=0.5
+        temperature=0
     )
     gpt = completion['choices'][0]['message']['content']
     print(gpt)
+    abc={"translated_sentence": gpt}
 
-    return gpt
+    return abc
 
 
-@app.get("/sentenceAnalysis/{sentence}")
-def sentence_analysis(sentence: str):
-    # 예시 문장
-    sentence = "한문장에서 유의미한 표준어의 단어 혹은 숙어를 추출하고자 합니다. "+sentence
-
-    # 유의미한 단어와 숙어 추출
-    words = extract_meaningful_words(sentence)
-    print(type(words))
-    for word in words:
+@app.post("/sentenceAnalysis")
+def sentence_analysis(req: KSL_translater_to_req):
+    # 문장 문법검사후 단어들을 배열에 넣음
+    print(req.sentence)
+    words_array = extract_meaningful_words(req.sentence)
+    print(type(words_array))
+    link = []
+    for word in words_array:
         print(find_same(word))
-    return words ## 미완성
+        link.append(find_same(word))
+    return link
+
+
+def filter_responses(responses):
+    filtered_responses = []
+    for response in responses:
+        if "세요" not in response:
+            filtered_responses.append(response)
+    return filtered_responses
