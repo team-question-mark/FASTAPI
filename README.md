@@ -1,5 +1,5 @@
 # FASTAPI
-FASTAPI
+KSL Translater API
 
 .env 설정
 
